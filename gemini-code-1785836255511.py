@@ -1,25 +1,20 @@
 import json
-import google.generativeai as genai
+from groq import Groq
 import streamlit as st
 
-# 1. 頁面基礎設定
-st.set_page_config(page_title="AI 智慧報關系統", layout="wide", page_icon="🛃")
+# 1. 頁面設定
+st.set_page_config(
+    page_title="AI 智慧報關系統 (Groq版)", layout="wide", page_icon="🛃"
+)
 
-st.title("🛃 AI 智慧報關與稅則比對系統")
-st.caption("結合 Google Gemini AI 即時分析全品項海關稅則、簽審規定與市場價格風險")
+st.title("🛃 AI 智慧報關與稅則比對系統 (Groq 驅動)")
+st.caption("結合 Llama 3 語言模型，即時分析海關稅則、簽審規定與市場價格風險")
 
-# 2. 自動讀取 Secrets 或側邊欄輸入 API Key
-api_key = st.secrets.get("GEMINI_API_KEY", "")
-
+# 2. 側邊欄 API Key 輸入
 with st.sidebar:
   st.header("⚙️ API 金鑰設定")
-  if api_key:
-    st.success("✅ 背景 API Key 連線中")
-  else:
-    api_key = st.text_input("輸入 Gemini API Key", type="password")
-    st.markdown(
-        "[👉 免費取得 Google Gemini API Key](https://aistudio.google.com/)"
-    )
+  groq_api_key = st.text_input("輸入 Groq API Key", type="password")
+  st.markdown("[👉 免費取得 Groq API Key](https://console.groq.com/)")
 
 # 3. 輸入區塊
 col1, col2 = st.columns(2)
@@ -36,13 +31,12 @@ with col2:
 
 # 4. 分析按鈕
 if st.button("🚀 開始全品項 AI 報關分析", type="primary"):
-  if not api_key:
-    st.error("請先在左側輸入您的 Gemini API Key！")
+  if not groq_api_key:
+    st.error("請先在左側輸入您的 Groq API Key！")
   else:
-    with st.spinner("⚡ Gemini 關務專家正在分析中..."):
+    with st.spinner("⚡ Groq 關務專家正在高速分析中..."):
       try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        client = Groq(api_key=groq_api_key)
 
         prompt = f"""
                 你是台灣海關報關師。請針對貨物「{prod_name}」（規格：{spec_desc}，CIF單價：{prod_price} TWD，產地：{origin}）進行分析。
@@ -57,45 +51,29 @@ if st.button("🚀 開始全品項 AI 報關分析", type="primary"):
                 }}
                 """
 
-        response = model.generate_content(prompt)
-        clean_text = (
-            response.text.replace("```json", "").replace("```", "").strip()
+        response = client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="llama-3.3-70b-versatile",
+            response_format={"type": "json_object"},
         )
-        ai_result = json.loads(clean_text)
 
-        st.session_state["gemini_result"] = ai_result
+        ai_result = json.loads(response.choices[0].message.content)
+
+        st.session_state["groq_result"] = ai_result
         st.session_state["analyzed_prod"] = prod_name
         st.session_state["analyzed_price"] = prod_price
 
       except Exception as e:
-        # 當遇上 429 限流或連線問題時的備援展演機制
-        st.info("💡 觸發 API 免費限流冷卻，已自動啟動內建知識庫幫您完成比對：")
-        st.session_state["gemini_result"] = {
-            "tariffs": [
-                (
-                    f"【首選】HS 2309.10.00.00-2 (符合度 95.0%) -"
-                    f" {prod_name} (零售包裝)"
-                ),
-                "【備選】HS 0511.99.90.90-9 (符合度 70.0%) - 其他未列名品項",
-            ],
-            "reg_warning": (
-                "⚠️ **管制與簽審提示**：若含肉類成分涉 **農業部防檢署檢疫"
-                " (B01)**，須檢附輸出國檢疫證明書；並涉 **食藥署輸入查驗"
-                " (F01)**。"
-            ),
-            "benchmark_cif": int(prod_price * 1.15),
-        }
-        st.session_state["analyzed_prod"] = prod_name
-        st.session_state["analyzed_price"] = prod_price
+        st.error(f"分析失敗，請確認 API Key 是否正確。錯誤訊息：{e}")
 
 # 5. 結果呈現
-if "gemini_result" in st.session_state:
-  res = st.session_state["gemini_result"]
+if "groq_result" in st.session_state:
+  res = st.session_state["groq_result"]
   current_name = st.session_state["analyzed_prod"]
   current_price = st.session_state["analyzed_price"]
 
   st.divider()
-  st.subheader(f"📊 AI 實時分析結果：【{current_name}】")
+  st.subheader(f"📊 AI 分析結果：【{current_name}】")
 
   # 選擇稅則
   selected_hs = st.radio(
