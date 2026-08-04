@@ -44,30 +44,49 @@ if st.button("🚀 開始 Gemini AI 報關分析", type="primary"):
         # 設定 Gemini API Key
         genai.configure(api_key=gemini_api_key)
 
-        # 修正模型名稱為相容版本
-        model = genai.GenerativeModel("gemini-1.5-flash-latest")
+        # 多模型自動備援列表 (支援最新模型)
+        candidate_models = [
+            "gemini-1.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-pro",
+        ]
+        model = None
+        last_error = None
 
-        # 設計 Prompt
-        prompt = f"""
-                你是一名台灣專業的海關報關師與關務專家。請針對以下進口貨物進行報關分析：
-                - 貨物名稱：{prod_name}
-                - 產地：{origin}
-                - 申報單價：CIF {prod_price} TWD
-                - 規格說明：{spec_desc}
+        # 嘗試連線可用模型
+        for m_name in candidate_models:
+          try:
+            model = genai.GenerativeModel(m_name)
+            # 設計 Prompt
+            prompt = f"""
+                        你是一名台灣專業的海關報關師與關務專家。請針對以下進口貨物進行報關分析：
+                        - 貨物名稱：{prod_name}
+                        - 產地：{origin}
+                        - 申報單價：CIF {prod_price} TWD
+                        - 規格說明：{spec_desc}
 
-                請依據台灣財政部關務署 (GC411) 稅則與相關簽審規定，以 JSON 格式回答，格式必須如下：
-                {{
-                    "tariffs": [
-                        "【首選】HS [完整11位稅則號別] (符合度 95%) - [稅則中文品名]",
-                        "【備選】HS [完整11位稅則號別] (符合度 75%) - [稅則中文品名]"
-                    ],
-                    "reg_warning": "⚠️ 管制與簽審提示：[列出是否涉及防檢署動植物檢疫(如 B01/F01)、食藥署查驗、NCC、BSMI 或貨物稅等規定與報關建議]",
-                    "benchmark_cif": [請評估該商品在台灣市場推估的合理完稅均價 CIF (整數 TWD)]
-                }}
-                請確保輸出為純 JSON 格式，不要包含任何 markdown 標記說明。
-                """
+                        請依據台灣財政部關務署 (GC411) 稅則與相關簽審規定，以 JSON 格式回答，格式必須如下：
+                        {{
+                            "tariffs": [
+                                "【首選】HS [完整11位稅則號別] (符合度 95%) - [稅則中文品名]",
+                                "【備選】HS [完整11位稅則號別] (符合度 75%) - [稅則中文品名]"
+                            ],
+                            "reg_warning": "⚠️ 管制與簽審提示：[列出是否涉及防檢署動植物檢疫(如 B01/F01)、食藥署查驗、NCC、BSMI 或貨物稅等規定與報關建議]",
+                            "benchmark_cif": [請評估該商品在台灣市場推估的合理完稅均價 CIF (整數 TWD)]
+                        }}
+                        請確保輸出為純 JSON 格式，不要包含任何 markdown 標記說明。
+                        """
+            response = model.generate_content(prompt)
+            if response.text:
+              break
+          except Exception as err:
+            last_error = err
+            continue
 
-        response = model.generate_content(prompt)
+        if not response or not response.text:
+          raise Exception(
+              f"模型呼叫失敗，請確認 API Key 是否擁有權限。詳細錯誤：{last_error}"
+          )
 
         # 解析 AI 回傳的 JSON 內容
         clean_json = (
@@ -132,4 +151,5 @@ if "gemini_result" in st.session_state:
     st.success(
         f"🎉 申報成功！已採納稅則：\n`{selected_hs}`\n\n系統已自動封裝報關 XML"
         " 檔案！"
+    )
     )
